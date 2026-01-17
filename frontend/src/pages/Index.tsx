@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link as LinkIcon, Sparkles, ArrowRight, Plus, Mic2 } from "lucide-react";
+import { Link as LinkIcon, Sparkles, ArrowRight, Plus, Mic2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import LinkCard from "@/components/LinkCard";
+import { extractBatch, batchResponseToExtractedContent, ExtractedContent } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface LinkItem {
   id: string;
@@ -31,12 +33,14 @@ const detectLinkType = (url: string): LinkItem["type"] => {
 
 const Index = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [links, setLinks] = useState<LinkItem[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
 
   const addLink = () => {
     if (!inputValue.trim()) return;
-    if (links.length >= 3) return; // Maximum 3 links
 
     const newLink: LinkItem = {
       id: Date.now().toString(),
@@ -58,15 +62,55 @@ const Index = () => {
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (links.length === 0) return;
     
-    // Navigate to player with links (no backend extraction needed)
-    navigate("/player", {
-      state: {
-        links,
-      },
-    });
+    setIsGenerating(true);
+    setGenerationProgress({ current: 0, total: links.length });
+    
+    try {
+      const urls = links.map(link => link.url);
+      console.log("[Index] Starting batch extraction with URLs:", urls);
+      
+      // Use batch endpoint to get combined dictionary format
+      const batchResponse = await extractBatch(urls);
+      console.log("[Index] Batch response received:", batchResponse);
+      
+      // Convert batch response to ExtractedContent array format
+      const extractedContents: ExtractedContent[] = batchResponseToExtractedContent(
+        batchResponse,
+        urls
+      );
+      
+      console.log("[Index] Converted to ExtractedContent:", extractedContents);
+      
+      // Update progress
+      setGenerationProgress({ current: links.length, total: links.length });
+      
+      toast({
+        title: "Content Extracted",
+        description: `Successfully extracted content from ${links.length} link(s)`,
+      });
+      
+      // Navigate to player with both links and extracted content
+      navigate("/player", { 
+        state: { 
+          links,
+          extractedContents,
+          batchResponse // Also pass the raw batch response
+        } 
+      });
+    } catch (error) {
+      console.error("[Index] Error generating podcast:", error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error 
+          ? error.message 
+          : "Failed to extract content from URLs. Please try again.",
+        variant: "destructive",
+      });
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -95,10 +139,10 @@ const Index = () => {
           </motion.div>
           
           <h1 className="text-4xl md:text-5xl font-bold font-display mb-4">
-            <span className="gradient-text">PodcastAI</span>
+            <span className="gradient-text">Podify</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
-            Transform articles, PDFs, and videos into engaging podcasts with AI
+            Transform articles into engaging podcasts with AI
           </p>
         </motion.div>
 
@@ -111,7 +155,7 @@ const Index = () => {
         >
           <div className="glass-card rounded-2xl p-6">
             <label className="block text-sm font-medium text-muted-foreground mb-3">
-              Add your content links {links.length > 0 && `(${links.length}/3)`}
+              Add your content links
             </label>
             <div className="flex gap-3">
               <div className="relative flex-1">
@@ -130,7 +174,6 @@ const Index = () => {
                 variant="gradient"
                 size="icon"
                 className="h-12 w-12 rounded-xl"
-                disabled={links.length >= 3}
               >
                 <Plus className="w-5 h-5" />
               </Button>
@@ -160,25 +203,43 @@ const Index = () => {
           )}
         </AnimatePresence>
 
-
         {/* Generate Button */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
-          className="flex justify-center"
+          className="flex flex-col items-center gap-4"
         >
           <Button
             onClick={handleGenerate}
-            disabled={links.length === 0}
+            disabled={links.length === 0 || isGenerating}
             variant="gradient"
             size="xl"
             className="group"
           >
-            <Sparkles className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform" />
-            Generate Podcast
-            <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform" />
+                Generate Podcast
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
           </Button>
+          
+          {isGenerating && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-sm text-muted-foreground"
+            >
+              Extracting content from {generationProgress.current} of {generationProgress.total} links...
+            </motion.div>
+          )}
         </motion.div>
 
         {/* Info */}
@@ -189,16 +250,7 @@ const Index = () => {
             transition={{ delay: 0.6 }}
             className="text-center text-sm text-muted-foreground mt-8"
           >
-            Add at least one link to generate your podcast (max 3 links)
-          </motion.p>
-        )}
-        {links.length >= 3 && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center text-sm text-muted-foreground mt-4"
-          >
-            Maximum of 3 links reached
+            Add at least one link to generate your podcast
           </motion.p>
         )}
       </div>

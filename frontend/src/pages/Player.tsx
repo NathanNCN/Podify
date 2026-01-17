@@ -161,48 +161,8 @@ const Player = () => {
               Your Generated Podcast
             </h1>
             <p className="text-muted-foreground">
-              {links.length || 1} source{links.length !== 1 ? "s" : ""} • 12 min 34 sec
+              {location.state?.links?.length || 1} sources • 12 min 34 sec
             </p>
-            {links.length > 0 && (
-              <div className="mt-4 space-y-2 max-w-2xl mx-auto">
-                {links.map((link, index) => (
-                  <div
-                    key={link.id || index}
-                    className="text-left p-3 bg-muted/50 rounded-lg border border-border"
-                  >
-                    <p className="text-sm font-medium mb-1">
-                      {link.type.charAt(0).toUpperCase() + link.type.slice(1)} Source {index + 1}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {link.url}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Type: {link.type}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-            {extractedContents.length > 0 && (
-              <div className="mt-4 space-y-2 max-w-2xl mx-auto">
-                {extractedContents.map((content, index) => (
-                  <div
-                    key={index}
-                    className="text-left p-3 bg-muted/50 rounded-lg border border-border"
-                  >
-                    <p className="text-sm font-medium mb-1">
-                      {content.title || `Source ${index + 1}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {content.url}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {content.text.length} characters extracted • Type: {content.content_type}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
           </motion.div>
 
           {/* Waveform */}
