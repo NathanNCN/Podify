@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -13,12 +13,14 @@ import {
   ArrowLeft,
   Share2,
   Download,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AudioWaveform from "@/components/AudioWaveform";
 import ProgressBar from "@/components/ProgressBar";
 import SpeedControl from "@/components/SpeedControl";
-import { ExtractedContent } from "@/lib/api";
+import { ExtractedContent, textToSpeech } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface LinkItem {
   id: string;
@@ -29,62 +31,190 @@ interface LinkItem {
 const Player = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const audioRef = useRef<HTMLAudioElement>(null);
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [volume, setVolume] = useState(80);
   const [isMuted, setIsMuted] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
 
   const links: LinkItem[] = location.state?.links || [];
   const extractedContents: ExtractedContent[] = location.state?.extractedContents || [];
+  const batchResponse = location.state?.batchResponse;
+  const script = batchResponse?.script || location.state?.script;
 
-  const duration = 12 * 60 + 34; // 12:34 demo duration
-
-  // Initialize player - no need to redirect, just show the player
+  // Generate TTS audio when script is available
   useEffect(() => {
-    setIsLoading(false);
-  }, []);
+    const generateAudio = async () => {
+      if (!script || !script.trim()) {
+        setIsLoading(false);
+        toast({
+          title: "No Script Available",
+          description: "No podcast script found. Please generate a script first.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-  // Simulate playback
+      setIsGeneratingAudio(true);
+      try {
+        console.log("[Player] Generating TTS audio from script...");
+        const result = await textToSpeech(script);
+        console.log("[Player] TTS audio generated:", result.audio_url);
+        setAudioUrl(result.audio_url);
+        setIsGeneratingAudio(false);
+        setIsLoading(false);
+        
+        toast({
+          title: "Audio Generated",
+          description: "Your podcast audio is ready to play!",
+        });
+      } catch (error) {
+        console.error("[Player] Error generating audio:", error);
+        setIsGeneratingAudio(false);
+        setIsLoading(false);
+        toast({
+          title: "Audio Generation Failed",
+          description: error instanceof Error ? error.message : "Failed to generate audio. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    generateAudio();
+  }, [script, toast]);
+
+  // Update audio element when URL changes
   useEffect(() => {
-    if (!isPlaying) return;
+    if (audioRef.current && audioUrl) {
+      audioRef.current.load();
+    }
+  }, [audioUrl]);
 
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          setIsPlaying(false);
-          return 100;
-        }
-        return prev + (100 / duration) * speed;
+  // Update progress from audio element
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateProgress = () => {
+      if (audio.duration) {
+        const percent = (audio.currentTime / audio.duration) * 100;
+        setProgress(percent);
+        setDuration(audio.duration);
+      }
+    };
+
+    const handleTimeUpdate = () => updateProgress();
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration);
+      updateProgress();
+    };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setProgress(100);
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, [audioUrl]);
+
+  // Sync play/pause with audio element
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.play().catch((error) => {
+        console.error("[Player] Error playing audio:", error);
+        setIsPlaying(false);
       });
-    }, 1000);
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying]);
 
-    return () => clearInterval(interval);
-  }, [isPlaying, speed, duration]);
+  // Sync speed with audio element
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.playbackRate = speed;
+    }
+  }, [speed]);
 
-  const togglePlay = () => setIsPlaying(!isPlaying);
+  // Sync volume with audio element
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = isMuted ? 0 : volume / 100;
+    }
+  }, [volume, isMuted]);
+
+  const togglePlay = () => {
+    if (!audioUrl) return;
+    setIsPlaying(!isPlaying);
+  };
 
   const skipForward = () => {
-    setProgress((prev) => Math.min(100, prev + (10 / duration) * 100));
+    const audio = audioRef.current;
+    if (audio && duration) {
+      audio.currentTime = Math.min(duration, audio.currentTime + 10);
+    }
   };
 
   const skipBackward = () => {
-    setProgress((prev) => Math.max(0, prev - (10 / duration) * 100));
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = Math.max(0, audio.currentTime - 10);
+    }
   };
 
   const goToStart = () => {
-    setProgress(0);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = 0;
+      setIsPlaying(false);
+    }
   };
 
   const goToEnd = () => {
-    setProgress(100);
-    setIsPlaying(false);
+    const audio = audioRef.current;
+    if (audio && duration) {
+      audio.currentTime = duration;
+      setIsPlaying(false);
+    }
   };
 
   const toggleMute = () => setIsMuted(!isMuted);
 
-  if (isLoading) {
+  const handleSeek = (newProgress: number) => {
+    const audio = audioRef.current;
+    if (audio && duration) {
+      audio.currentTime = (newProgress / 100) * duration;
+      setProgress(newProgress);
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (!isFinite(seconds) || isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  if (isLoading || isGeneratingAudio) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <motion.div
@@ -98,10 +228,12 @@ const Player = () => {
             className="w-16 h-16 mx-auto mb-6 rounded-full border-4 border-muted border-t-primary"
           />
           <h2 className="text-xl font-display font-semibold gradient-text mb-2">
-            Generating Your Podcast
+            {isGeneratingAudio ? "Generating Audio" : "Loading..."}
           </h2>
           <p className="text-muted-foreground">
-            AI is processing your content...
+            {isGeneratingAudio 
+              ? "Converting your script to speech with ElevenLabs..." 
+              : "Preparing your podcast..."}
           </p>
         </motion.div>
       </div>
@@ -161,7 +293,7 @@ const Player = () => {
               Your Generated Podcast
             </h1>
             <p className="text-muted-foreground">
-              {location.state?.links?.length || 1} sources • 12 min 34 sec
+              {links.length || 1} source{links.length !== 1 ? "s" : ""} • {formatTime(duration)}
             </p>
           </motion.div>
 
@@ -185,9 +317,19 @@ const Player = () => {
             <ProgressBar
               progress={progress}
               duration={duration}
-              onSeek={setProgress}
+              onSeek={handleSeek}
             />
           </motion.div>
+
+          {/* Hidden audio element */}
+          {audioUrl && (
+            <audio
+              ref={audioRef}
+              src={audioUrl}
+              preload="metadata"
+              style={{ display: "none" }}
+            />
+          )}
 
           {/* Controls */}
           <motion.div
@@ -215,6 +357,7 @@ const Player = () => {
             </Button>
             <Button
               onClick={togglePlay}
+              disabled={!audioUrl}
               variant="gradient"
               size="xl"
               className="w-16 h-16 rounded-full p-0"

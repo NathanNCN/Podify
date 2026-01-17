@@ -22,6 +22,17 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+3. Set up environment variables:
+Create a `.env` file in the `backend/` directory with the following:
+```bash
+# ElevenLabs API Key (required for text-to-speech)
+# Get your API key from: https://elevenlabs.io/app/api-keys
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+
+# Google Gemini API Key (required for script generation)
+GOOGLE_API_KEY=your_google_api_key_here
+```
+
 ## Running the Server
 
 ```bash

@@ -4,15 +4,18 @@ FastAPI application for extracting and normalizing text from web URLs
 """
 
 import logging
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl, Field
 
 from ingestion.url import extract_text_from_url
 from parser.extract import TRAFILATURA_AVAILABLE, READABILITY_AVAILABLE
 from generation.prompt import generate_podcast_script
+from generation.tts import text_to_speech
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +35,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for audio storage
+# This allows the frontend to access generated audio files
+storage_dir = Path(__file__).parent / "storage"
+# Ensure storage directory exists (TTS module will create subdirectories)
+storage_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 # Request/Response models
 class ExtractRequest(BaseModel):
@@ -78,6 +88,18 @@ class GenerateScriptRequest(BaseModel):
 class GenerateScriptResponse(BaseModel):
     """Response model for generated podcast script"""
     script: str
+
+
+class TextToSpeechRequest(BaseModel):
+    """Request model for text-to-speech conversion"""
+    text: str = Field(..., description="Text to convert to speech")
+    voice_id: Optional[str] = Field(None, description="Optional voice ID for ElevenLabs")
+
+
+class TextToSpeechResponse(BaseModel):
+    """Response model for text-to-speech conversion"""
+    audio_path: str = Field(..., description="Path to the generated audio file")
+    audio_url: str = Field(..., description="URL to access the audio file")
 
 
 @app.get("/")
@@ -307,6 +329,46 @@ async def generate_script(request: GenerateScriptRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate podcast script: {str(e)}"
+        )
+
+
+@app.post("/tts", response_model=TextToSpeechResponse)
+async def convert_text_to_speech(request: TextToSpeechRequest):
+    """
+    Convert text to speech using ElevenLabs TTS API.
+    
+    Takes text input and generates an audio file (MP3 format).
+    Returns the file path and URL for accessing the audio.
+    """
+    try:
+        logger.info(f"TTS request received: {len(request.text)} characters")
+        
+        # Call TTS function
+        audio_path = text_to_speech(request.text, voice_id=request.voice_id)
+        
+        # Construct URL for accessing the audio file
+        # The path returned is relative to backend root (e.g., "storage/audio/tts/hash.mp3")
+        # Convert to URL path by prepending "/"
+        audio_url = f"/{audio_path}"
+        
+        logger.info(f"TTS conversion successful: {audio_path}")
+        
+        return TextToSpeechResponse(
+            audio_path=audio_path,
+            audio_url=audio_url
+        )
+        
+    except ValueError as e:
+        logger.error(f"TTS validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"TTS conversion error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to convert text to speech: {str(e)}"
         )
 
 

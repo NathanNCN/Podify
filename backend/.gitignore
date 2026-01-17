@@ -39,3 +39,6 @@ ENV/
 
 # Logs
 *.log
+
+# Generated audio files
+storage/audio/

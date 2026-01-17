@@ -217,3 +217,56 @@ export async function generateScript(
   }
 }
 
+/**
+ * Convert text to speech using ElevenLabs TTS API
+ * Returns the URL to the generated audio file
+ */
+export async function textToSpeech(
+  text: string,
+  voiceId?: string
+): Promise<{ audio_path: string; audio_url: string }> {
+  console.log(`[API] Calling TTS endpoint with text length:`, text.length);
+  console.log(`[API] Backend URL: ${API_BASE_URL}`);
+  
+  try {
+    const requestBody: { text: string; voice_id?: string } = { text };
+    if (voiceId) {
+      requestBody.voice_id = voiceId;
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/tts`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log(`[API] TTS response status: ${response.status} ${response.statusText}`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
+      console.error(`[API] TTS error response:`, error);
+      throw new Error(error.detail || `Failed to convert text to speech: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log(`[API] TTS conversion successful:`, {
+      audio_path: data.audio_path,
+      audio_url: data.audio_url,
+    });
+    
+    // Return full URL for audio file
+    return {
+      audio_path: data.audio_path,
+      audio_url: `${API_BASE_URL}${data.audio_url}`,
+    };
+  } catch (error) {
+    console.error(`[API] TTS fetch error:`, error);
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(`Cannot connect to backend at ${API_BASE_URL}. Is the server running?`);
+    }
+    throw error;
+  }
+}
+
