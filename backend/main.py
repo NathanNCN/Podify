@@ -16,6 +16,7 @@ from ingestion.url import extract_text_from_url
 from parser.extract import TRAFILATURA_AVAILABLE, READABILITY_AVAILABLE
 from generation.prompt import generate_podcast_script
 from generation.tts import text_to_speech
+from generation.summary import generate_summary
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -58,6 +59,7 @@ class ExtractResponse(BaseModel):
 
 class BatchExtractRequest(BaseModel):
     urls: List[HttpUrl] = Field(..., description="List of URLs to extract text from")
+    user_extra_content: Optional[str] = Field(None, description="Optional additional content from the user to include in the podcast")
 
 
 class BatchExtractResponse(BaseModel):
@@ -72,6 +74,7 @@ class CombinedBatchResponse(BaseModel):
     link3: Optional[str] = None
     total_characters: int
     script: Optional[str] = None  # Generated podcast script
+    summary: Optional[str] = None  # Generated summary with notes and key takeaways
     
     model_config = {"extra": "allow"}  # Allow additional fields for link4, link5, etc. (Pydantic v2)
 
@@ -81,6 +84,7 @@ class GenerateScriptRequest(BaseModel):
     link1: Optional[str] = None
     link2: Optional[str] = None
     link3: Optional[str] = None
+    user_extra_content: Optional[str] = Field(None, description="Optional additional content from the user to include in the podcast")
     
     model_config = {"extra": "allow"}  # Allow additional fields for link4, link5, etc.
 
@@ -100,6 +104,17 @@ class TextToSpeechResponse(BaseModel):
     """Response model for text-to-speech conversion"""
     audio_path: str = Field(..., description="Path to the generated audio file")
     audio_url: str = Field(..., description="URL to access the audio file")
+
+
+class GenerateSummaryRequest(BaseModel):
+    """Request model for generating summary from podcast script"""
+    script: str = Field(..., description="Podcast script to summarize")
+    user_links: Optional[List[str]] = Field(None, description="Optional list of original source URLs used to generate the podcast")
+
+
+class GenerateSummaryResponse(BaseModel):
+    """Response model for generated summary"""
+    summary: str = Field(..., description="Generated summary with notes and key takeaways")
 
 
 @app.get("/")
@@ -225,6 +240,11 @@ async def extract_batch(request: BatchExtractRequest):
         # Filter out empty links for script generation
         extracted_texts = {k: v for k, v in texts.items() if v and v.strip()}
         
+        # Add user extra content if provided
+        if request.user_extra_content and request.user_extra_content.strip():
+            extracted_texts['user_extra_content'] = request.user_extra_content.strip()
+            print(f"User extra content included: {len(request.user_extra_content.strip()):,} characters")
+        
         if extracted_texts:
             print("\n" + "="*80)
             print("AUTO-GENERATING PODCAST SCRIPT")
@@ -232,6 +252,25 @@ async def extract_batch(request: BatchExtractRequest):
             logger.info(f"Auto-generating podcast script from {len(extracted_texts)} source(s)")
             script = generate_podcast_script(extracted_texts)
             response_data['script'] = script
+            
+            # Auto-generate summary from the script
+            try:
+                print("\n" + "="*80)
+                print("AUTO-GENERATING PODCAST SUMMARY")
+                print("="*80)
+                logger.info("Auto-generating summary from script")
+                # Pass the original URLs and the same extracted_texts used for script generation
+                user_links = [str(url) for url in request.urls]
+                # Use the same extracted_texts that was used to create the script
+                summary = generate_summary(script, user_links, extracted_texts)
+                response_data['summary'] = summary
+                print("="*80 + "\n")
+            except Exception as e:
+                logger.error(f"Error auto-generating summary: {e}")
+                print(f"\nWARNING: Failed to auto-generate summary: {e}\n")
+                # Continue without summary - don't fail the entire request
+                response_data['summary'] = None
+            
             print("="*80 + "\n")
         else:
             print("\nWARNING: No valid content extracted, skipping script generation\n")
@@ -260,7 +299,7 @@ async def extract_batch(request: BatchExtractRequest):
         value = response_dict[key]
         if key == 'total_characters':
             formatted_dict += f'  "{key}": {value},\n'
-        elif key == 'script':
+        elif key == 'script' or key == 'summary':
             if value:
                 preview = value[:100].replace('\n', '\\n').replace('"', '\\"')
                 if len(value) > 100:
@@ -304,6 +343,11 @@ async def generate_script(request: GenerateScriptRequest):
             if key.startswith("link") and value:
                 extracted_texts[key] = value
                 print(f"  {key}: {len(value):,} characters")
+        
+        # Add user extra content if provided
+        if request.user_extra_content and request.user_extra_content.strip():
+            extracted_texts['user_extra_content'] = request.user_extra_content.strip()
+            print(f"  user_extra_content: {len(request.user_extra_content.strip()):,} characters")
         
         if not extracted_texts:
             print("ERROR: No valid link content provided")
@@ -369,6 +413,61 @@ async def convert_text_to_speech(request: TextToSpeechRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to convert text to speech: {str(e)}"
+        )
+
+
+@app.post("/summary", response_model=GenerateSummaryResponse)
+async def generate_podcast_summary(request: GenerateSummaryRequest):
+    """
+    Generate a summary with notes and key takeaways from a podcast script.
+    
+    This endpoint creates a comprehensive summary document that helps users
+    quickly understand the podcast content, especially if they are unable to
+    finish listening to the entire episode.
+    
+    The summary includes:
+    - Overview of the podcast
+    - Key takeaways
+    - Detailed notes by segment
+    - Quick reference information
+    """
+    try:
+        logger.info(f"Summary generation request received: {len(request.script)} characters")
+        
+        if not request.script or not request.script.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Script cannot be empty"
+            )
+        
+        print("\n" + "="*80)
+        print("GENERATING PODCAST SUMMARY")
+        print("="*80)
+        print(f"Script length: {len(request.script):,} characters")
+        if request.user_links:
+            print(f"Source links: {len(request.user_links)} link(s)")
+            for idx, link in enumerate(request.user_links, 1):
+                print(f"  {idx}. {link}")
+        print("="*80 + "\n")
+        
+        # Generate the summary
+        summary = generate_summary(request.script, request.user_links)
+        
+        logger.info(f"Successfully generated summary ({len(summary)} characters)")
+        
+        return GenerateSummaryResponse(summary=summary)
+        
+    except ValueError as e:
+        logger.error(f"Summary validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Summary generation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate summary: {str(e)}"
         )
 
 

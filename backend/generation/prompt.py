@@ -31,14 +31,37 @@ def create_podcast_prompt(extracted_texts: Dict[str, str]) -> str:
     """
     # Build the content sections
     content_sections = []
+    user_extra_content = None
+    
     for key in sorted(extracted_texts.keys()):
+        # Handle user extra content separately
+        if key == "user_extra_content" and extracted_texts[key]:
+            user_extra_content = extracted_texts[key]
+            continue
         # Skip non-link keys like "total_characters"
         if key.startswith("link") and extracted_texts[key]:
             link_num = key.replace("link", "")
             content_sections.append(f"## Source {link_num}\n{extracted_texts[key]}\n")
     
+    # Add user extra content if provided (prioritize it by placing it first or with special emphasis)
+    if user_extra_content:
+        # Place user content at the beginning to give it priority
+        content_sections.insert(0, f"## Additional User Content (PRIORITY - Integrate this content prominently)\n{user_extra_content}\n")
+    
     # Combine all content
     combined_content = "\n".join(content_sections)
+    
+    # Build user content instruction if present
+    user_content_instruction = ""
+    if user_extra_content:
+        user_content_instruction = """
+IMPORTANT - USER CONTENT INTEGRATION:
+- The "Additional User Content" section contains content directly provided by the user
+- This content should be given HIGH PRIORITY and integrated prominently throughout the script
+- Use the user's content to guide the narrative, add personal context, or emphasize specific points
+- Seamlessly weave user content into the script rather than treating it as separate
+- If user content provides context or preferences, use it to shape how you present the source material
+"""
     
     # Create the prompt with f-string to substitute the combined_content
     prompt = f"""You are a professional podcast script writer creating audio content for listeners who are driving or multitasking.
@@ -49,11 +72,15 @@ CONTENT TO USE:
 YOUR TASK:
 Create a 10-12 minute podcast script (approximately 1,500-1,800 words when spoken aloud) that:
 
+NOTE: Here is the user content that you should use to guide the script:
+{user_content_instruction}
+
 CONTENT HANDLING:
 - Extract the 5-8 most important insights from the sources
 - If sources conflict, acknowledge both perspectives briefly
 - Prioritize actionable takeaways and concrete examples over theory
 - Combine related points from multiple sources into unified segments
+- If user content is provided, ensure it is prominently featured and integrated throughout the script
 
 STRUCTURE:
 [INTRO] (30-45 seconds)

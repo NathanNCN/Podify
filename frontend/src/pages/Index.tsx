@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link as LinkIcon, Sparkles, ArrowRight, Plus, Mic2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import LinkCard from "@/components/LinkCard";
 import { extractBatch, batchResponseToExtractedContent, ExtractedContent } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -36,16 +37,39 @@ const Index = () => {
   const { toast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [links, setLinks] = useState<LinkItem[]>([]);
+  const [extraContent, setExtraContent] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
 
   const addLink = () => {
     if (!inputValue.trim()) return;
 
+    const url = inputValue.trim();
+    const linkType = detectLinkType(url);
+
+    // Prevent YouTube videos and PDFs
+    if (linkType === "video") {
+      toast({
+        title: "Video links not supported",
+        description: "YouTube and video links are not supported. Please add article links only.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (linkType === "pdf") {
+      toast({
+        title: "PDF files not supported",
+        description: "PDF files are not supported. Please add article links only.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newLink: LinkItem = {
       id: Date.now().toString(),
-      url: inputValue.trim(),
-      type: detectLinkType(inputValue.trim()),
+      url: url,
+      type: linkType,
     };
 
     setLinks((prev) => [...prev, newLink]);
@@ -73,7 +97,7 @@ const Index = () => {
       console.log("[Index] Starting batch extraction with URLs:", urls);
       
       // Use batch endpoint to get combined dictionary format
-      const batchResponse = await extractBatch(urls);
+      const batchResponse = await extractBatch(urls, extraContent.trim() || undefined);
       console.log("[Index] Batch response received:", batchResponse);
       
       // Convert batch response to ExtractedContent array format
@@ -97,7 +121,8 @@ const Index = () => {
         state: { 
           links,
           extractedContents,
-          batchResponse // Also pass the raw batch response
+          batchResponse, // Also pass the raw batch response
+          extraContent: extraContent.trim() || undefined // Pass extra content if provided
         } 
       });
     } catch (error) {
@@ -165,7 +190,7 @@ const Index = () => {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Paste article, PDF, or video URL..."
+                  placeholder="Paste article URL..."
                   className="w-full h-12 pl-12 pr-4 bg-muted/50 border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
               </div>
@@ -202,6 +227,26 @@ const Index = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Extra Content Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.35 }}
+          className="mb-8"
+        >
+          <div className="glass-card rounded-2xl p-6">
+            <label className="block text-sm font-medium text-muted-foreground mb-3">
+              User Extra Content <span className="text-xs text-muted-foreground/70">(optional)</span>
+            </label>
+            <Textarea
+              value={extraContent}
+              onChange={(e) => setExtraContent(e.target.value)}
+              placeholder="Add any additional content, notes, or context you'd like included in the podcast..."
+              className="min-h-[100px] bg-muted/50 border-border resize-none"
+            />
+          </div>
+        </motion.div>
 
         {/* Generate Button */}
         <motion.div

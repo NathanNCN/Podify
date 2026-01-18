@@ -60,7 +60,7 @@ export async function extractContent(url: string): Promise<ExtractResponse> {
  * Extract content from multiple URLs (batch)
  * Returns format: {link1: text, link2: text, link3: text, total_characters: count}
  */
-export async function extractBatch(urls: string[]): Promise<{
+export async function extractBatch(urls: string[], userExtraContent?: string): Promise<{
   link1?: string;
   link2?: string;
   link3?: string;
@@ -68,15 +68,23 @@ export async function extractBatch(urls: string[]): Promise<{
   total_characters: number;
 }> {
   console.log(`[API] Calling batch endpoint with ${urls.length} URLs:`, urls);
+  if (userExtraContent) {
+    console.log(`[API] User extra content included: ${userExtraContent.length} characters`);
+  }
   console.log(`[API] Backend URL: ${API_BASE_URL}`);
   
   try {
+    const requestBody: { urls: string[]; user_extra_content?: string } = { urls };
+    if (userExtraContent && userExtraContent.trim()) {
+      requestBody.user_extra_content = userExtraContent.trim();
+    }
+    
     const response = await fetch(`${API_BASE_URL}/extract/batch`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ urls }),
+      body: JSON.stringify(requestBody),
     });
 
     console.log(`[API] Response status: ${response.status} ${response.statusText}`);
@@ -170,9 +178,13 @@ export function batchResponseToExtractedContent(
  * Takes the batch response format {link1: text, link2: text, ...} and generates a script
  */
 export async function generateScript(
-  batchResponse: { [key: string]: string | number | undefined }
+  batchResponse: { [key: string]: string | number | undefined },
+  userExtraContent?: string
 ): Promise<string> {
   console.log(`[API] Calling generate endpoint with batch response`);
+  if (userExtraContent) {
+    console.log(`[API] User extra content included: ${userExtraContent.length} characters`);
+  }
   console.log(`[API] Backend URL: ${API_BASE_URL}`);
   
   try {
@@ -182,6 +194,11 @@ export async function generateScript(
       if (key.startsWith("link") && typeof batchResponse[key] === "string") {
         requestBody[key] = batchResponse[key] as string;
       }
+    }
+    
+    // Add user extra content if provided
+    if (userExtraContent && userExtraContent.trim()) {
+      requestBody.user_extra_content = userExtraContent.trim();
     }
     
     console.log(`[API] Request body keys:`, Object.keys(requestBody));
@@ -263,6 +280,54 @@ export async function textToSpeech(
     };
   } catch (error) {
     console.error(`[API] TTS fetch error:`, error);
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(`Cannot connect to backend at ${API_BASE_URL}. Is the server running?`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Generate a summary with notes and key takeaways from a podcast script
+ * Returns the generated summary text
+ */
+export async function generateSummary(script: string, userLinks?: string[]): Promise<string> {
+  console.log(`[API] Calling summary endpoint with script length:`, script.length);
+  if (userLinks) {
+    console.log(`[API] User links included: ${userLinks.length} link(s)`);
+  }
+  console.log(`[API] Backend URL: ${API_BASE_URL}`);
+  
+  try {
+    const requestBody: { script: string; user_links?: string[] } = { script };
+    if (userLinks && userLinks.length > 0) {
+      requestBody.user_links = userLinks;
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/summary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log(`[API] Summary response status: ${response.status} ${response.statusText}`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
+      console.error(`[API] Summary error response:`, error);
+      throw new Error(error.detail || `Failed to generate summary: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log(`[API] Summary generation successful:`, {
+      summaryLength: data.summary?.length,
+    });
+    
+    return data.summary;
+  } catch (error) {
+    console.error(`[API] Summary fetch error:`, error);
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error(`Cannot connect to backend at ${API_BASE_URL}. Is the server running?`);
     }
