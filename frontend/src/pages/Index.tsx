@@ -169,6 +169,9 @@ const Index = () => {
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
             Transform articles into engaging podcasts with AI
           </p>
+          <p className="text-lg text-muted-foreground max-w-md mx-auto">
+          Note: This project uses limited API keys. If content fails to generate, that is most likely why. A demo video is available @ its.nathanchau.co
+          </p>
         </motion.div>
 
         {/* Input Section */}
