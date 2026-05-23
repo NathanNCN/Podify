@@ -83,18 +83,17 @@ CONTENT HANDLING:
 - If user content is provided, ensure it is prominently featured and integrated throughout the script
 
 STRUCTURE:
-[INTRO] (30-45 seconds)
 - Start with a compelling hook or question
 - Briefly preview what listeners will learn
 - Set expectations for length
 
-[MAIN SEGMENTS] (8-10 minutes)
+[MAIN SEGMENTS] 
 - Break content into 3-5 distinct segments
 - Each segment covers one major theme or idea
 - Use clear transitions between segments ("Now let's talk about...")
 - Include specific examples, stats, or quotes to maintain interest
 
-[CONCLUSION] (1-2 minutes)
+[CONCLUSION] 
 - Summarize 3 key takeaways
 - End with a thought-provoking question or call-to-action
 
